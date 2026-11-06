@@ -1,0 +1,6 @@
+{
+  "name": "CEK KALORI",
+  "description": "Aplikasi kesehatan digital untuk mencatat asupan makanan, estimasi kalori, analisis gizi seimbang, dan edukasi pola makan sehat dengan AI food scanner.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

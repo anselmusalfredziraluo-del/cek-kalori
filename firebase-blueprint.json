@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profile",
+      "description": "Informasi akun dan preferensi pengguna",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "heightCm": { "type": "number" },
+        "weightKg": { "type": "number" },
+        "foodPreferences": { "type": "string" },
+        "isPrivacyAccepted": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email"]
+    },
+    "foods": {
+      "title": "Food Item",
+      "description": "Katalog 56 makanan dan minuman Indonesia dengan estimasi kalori dan makronutrien",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "servingSize": { "type": "string" },
+        "caloriesMin": { "type": "number" },
+        "caloriesMax": { "type": "number" },
+        "carbs": { "type": "number" },
+        "protein": { "type": "number" },
+        "fat": { "type": "number" },
+        "fiber": { "type": "number" },
+        "source": { "type": "string" }
+      },
+      "required": ["id", "name", "category", "servingSize", "caloriesMin", "caloriesMax"]
+    },
+    "food_categories": {
+      "title": "Food Category",
+      "description": "Kategori makanan dalam aplikasi CEK KALORI",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" }
+      },
+      "required": ["id", "title"]
+    },
+    "food_logs": {
+      "title": "Food Log Entry",
+      "description": "Catatan makanan harian pengguna",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "foodId": { "type": "string" },
+        "foodName": { "type": "string" },
+        "category": { "type": "string" },
+        "portionQuantity": { "type": "number" },
+        "servingSize": { "type": "string" },
+        "caloriesMin": { "type": "number" },
+        "caloriesMax": { "type": "number" },
+        "isRange": { "type": "boolean" },
+        "carbs": { "type": "number" },
+        "protein": { "type": "number" },
+        "fat": { "type": "number" },
+        "fiber": { "type": "number" },
+        "mealType": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "foodName", "portionQuantity", "caloriesMin", "caloriesMax", "mealType", "date"]
+    },
+    "educational_contents": {
+      "title": "Educational Content",
+      "description": "Artikel edukasi gizi dan kebiasaan makan sehat",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "summary": { "type": "string" },
+        "content": { "type": "array", "items": { "type": "string" } },
+        "source": { "type": "string" }
+      },
+      "required": ["id", "title", "category", "summary"]
+    },
+    "user_settings": {
+      "title": "User Settings",
+      "description": "Pengaturan preferensi dan pengingat pengguna",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "reminderBreakfast": { "type": "boolean" },
+        "reminderLunch": { "type": "boolean" },
+        "reminderDinner": { "type": "boolean" },
+        "reminderWater": { "type": "boolean" }
+      },
+      "required": ["userId"]
+    }
+  }
+}
