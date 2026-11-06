@@ -2,6 +2,15 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import { FoodItem, FoodLogEntry, UserProfile, MealType } from '../types';
 import { INITIAL_FOODS_DATABASE } from '../data/foodsData';
 import confetti from 'canvas-confetti';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { auth } from '../../firebase';
+import {
+  doc,
+  setDoc,
+  getDoc
+} from 'firebase/firestore';
+
+import { db } from '../../firebase';
 
 interface StorageStatus {
   mode: 'local' | 'firestore';
@@ -31,8 +40,8 @@ interface AppContextType {
   closeAuthModal: () => void;
 
   // Auth & Profile
-  loginUser: (email: string, name?: string) => Promise<boolean>;
-  registerUser: (profile: Omit<UserProfile, 'id' | 'createdAt'>) => Promise<boolean>;
+  loginUser: (email: string, password: string, name?: string) => Promise<boolean>;
+registerUser: (profile: Omit<UserProfile, 'id' | 'createdAt'>, password: string) => Promise<boolean>;
   loginAsTrialUser: () => void;
   updateProfile: (updates: Partial<UserProfile>) => Promise<boolean>;
   logoutUser: () => void;
@@ -305,22 +314,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // Safe server sync in background
-  const syncToServer = useCallback(async (userId: string, profile: UserProfile, logs: FoodLogEntry[], custom: FoodItem[]) => {
-    try {
-      const res = await fetch(`/api/user-data/${userId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile, logs, customFoods: custom }),
-      });
-      if (res.ok) {
-        setIsServerSynced(true);
-      } else {
-        setIsServerSynced(false);
-      }
-    } catch (e) {
-      setIsServerSynced(false);
-    }
-  }, []);
+  const syncToServer = useCallback(async (
+  userId: string,
+  profile: UserProfile,
+  logs: FoodLogEntry[],
+  custom: FoodItem[]
+) => {
+  try {
+    await setDoc(
+      doc(db, 'users', userId),
+      {
+        profile,
+        logs,
+        customFoods: custom,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    console.log('Data berhasil disimpan ke Firestore.');
+  } catch (error) {
+    console.error('Firestore sync failed:', error);
+  }
+
+  try {
+    const res = await fetch(`/api/user-data/${userId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profile,
+        logs,
+        customFoods: custom,
+      }),
+    });
+
+    setIsServerSynced(res.ok);
+  } catch (error) {
+    setIsServerSynced(false);
+  }
+}, []);
 
   // Sync with server on mount or user switch
   useEffect(() => {
@@ -418,41 +450,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [showToast, writeLocalLogs]);
 
   // Login handler for registered accounts
-  const loginUser = async (email: string, name?: string): Promise<boolean> => {
-    try {
-      const cleanEmail = email.toLowerCase().trim();
-      if (!cleanEmail || !cleanEmail.includes('@')) {
-        showToast('Silakan masukkan alamat email yang valid.', 'error');
-        return false;
-      }
+  const loginUser = async (email: string, password: string, name?: string): Promise<boolean> => {
+  try {
+    const cleanEmail = email.toLowerCase().trim();
 
-      const accounts = getStoredAccounts();
-      let targetProfile = accounts[cleanEmail];
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      showToast('Silakan masukkan alamat email yang valid.', 'error');
+      return false;
+    }
 
-      if (!targetProfile) {
-        // If not in accounts registry yet, create new profile for this email
-        const userId = 'usr_' + btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
-        targetProfile = {
-          id: userId,
-          name: name?.trim() || cleanEmail.split('@')[0],
-          email: cleanEmail,
-          isPrivacyAccepted: true,
-          createdAt: new Date().toISOString(),
-          isGuest: false,
-          storageMode: 'local',
-          settings: {
-            reminderBreakfast: true,
-            reminderLunch: true,
-            reminderDinner: true,
-            reminderWater: true,
-            soundEnabled: true,
-          },
-        };
-        accounts[cleanEmail] = targetProfile;
-        saveStoredAccounts(accounts);
-      }
+    if (!password || password.length < 6) {
+      showToast('Password minimal 6 karakter.', 'error');
+      return false;
+    }
 
-      const userId = targetProfile.id;
+const userCredential = await signInWithEmailAndPassword(
+  auth,
+  cleanEmail,
+  password
+);
+
+const firebaseUser = userCredential.user;
+const userId = firebaseUser.uid;
+
+const accounts = getStoredAccounts();
+let targetProfile = accounts[cleanEmail];
+
+if (!targetProfile) {
+  targetProfile = {
+    id: userId,
+    name: name?.trim() || cleanEmail.split('@')[0],
+    email: cleanEmail,
+    isPrivacyAccepted: true,
+    createdAt: new Date().toISOString(),
+    isGuest: false,
+    storageMode: 'local',
+    settings: {
+      reminderBreakfast: true,
+      reminderLunch: true,
+      reminderDinner: true,
+      reminderWater: true,
+      soundEnabled: true,
+    },
+  };
+}
+
+targetProfile.id = userId;
+targetProfile.email = cleanEmail;
+accounts[cleanEmail] = targetProfile;
+saveStoredAccounts(accounts);
 
       // Load logs for this specific user account
       let userLogs: FoodLogEntry[] = [];
@@ -490,23 +536,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsAuthModalOpen(false);
       showToast(`Selamat datang kembali, ${targetProfile.name}! 👋`, 'success');
       return true;
-    } catch (err) {
-      console.error('loginUser failed:', err);
-      showToast('Gagal masuk ke akun. Silakan coba lagi.', 'error');
-      return false;
-    }
-  };
+    } catch (err: any) {
+  console.error('loginUser failed:', err);
+
+  if (err.code === 'auth/invalid-credential') {
+    showToast('Email atau password salah.', 'error');
+  } else if (err.code === 'auth/user-not-found') {
+    showToast('Akun belum terdaftar.', 'error');
+  } else if (err.code === 'auth/wrong-password') {
+    showToast('Password yang dimasukkan salah.', 'error');
+  } else if (err.code === 'auth/too-many-requests') {
+    showToast('Terlalu banyak percobaan. Coba lagi nanti.', 'error');
+  } else {
+    showToast('Gagal masuk ke akun. Silakan coba lagi.', 'error');
+  }
+
+  return false;
+}
+};
 
   // Register handler
-  const registerUser = async (profileData: Omit<UserProfile, 'id' | 'createdAt'>): Promise<boolean> => {
-    try {
-      const cleanEmail = profileData.email.toLowerCase().trim();
-      if (!cleanEmail || !cleanEmail.includes('@')) {
-        showToast('Silakan masukkan alamat email yang valid.', 'error');
-        return false;
-      }
+  const registerUser = async (profileData: Omit<UserProfile, 'id' | 'createdAt'>, password: string): Promise<boolean> => {
+  try {
+    const cleanEmail = profileData.email.toLowerCase().trim();
 
-      const userId = 'usr_' + btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      showToast('Silakan masukkan alamat email yang valid.', 'error');
+      return false;
+    }
+
+    if (!password || password.length < 6) {
+      showToast('Password minimal 6 karakter.', 'error');
+      return false;
+    }
+
+            // Membuat akun baru di Firebase Authentication
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        cleanEmail,
+        password
+      );
+
+      const firebaseUser = userCredential.user;
+      const userId = firebaseUser.uid;
 
       const newProfile: UserProfile = {
         ...profileData,
@@ -541,14 +613,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       syncToServer(userId, newProfile, userLogs, []);
 
       setIsAuthModalOpen(false);
-      showToast(`Akun berhasil dibuat! Seluruh catatan tersimpan aman. 🌱`, 'success');
+      showToast('Akun berhasil dibuat! 🌱', 'success');
+
       try {
         confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
       } catch (e) {}
+
       return true;
-    } catch (err) {
+
+    } catch (err: any) {
       console.error('registerUser failed:', err);
-      showToast('Gagal mendaftar akun. Silakan periksa kembali data Anda.', 'error');
+
+      if (err.code === 'auth/email-already-in-use') {
+        showToast('Email sudah terdaftar. Silakan masuk.', 'error');
+      } else if (err.code === 'auth/weak-password') {
+        showToast('Password terlalu lemah.', 'error');
+      } else if (err.code === 'auth/invalid-email') {
+        showToast('Format email tidak valid.', 'error');
+      } else {
+        showToast('Gagal mendaftar akun. Silakan coba lagi.', 'error');
+      }
+
       return false;
     }
   };
@@ -576,66 +661,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return false;
     }
   };
+  // Temporary delete account handler
+const deleteAccount = async (): Promise<boolean> => {
+  if (!user) {
+    showToast('Tidak ada akun yang sedang aktif.', 'error');
+    return false;
+  }
 
-  // Logout handler - Ends active session, preserves saved data, redirects to Auth screen
-  const logoutUser = () => {
-    try {
-      // 1. Remove active session pointer
-      localStorage.removeItem(STORAGE_KEY_USER);
+  showToast(
+    'Fitur penghapusan akun sedang dalam tahap pengembangan.',
+    'info'
+  );
 
-      // 2. Clear current state (saved logs in localStorage remain untouched)
-      setUser(null);
-      setFoodLogs([]);
-      setCustomFoods([]);
+  return false;
+};
 
-      // 3. Navigate back to Beranda and immediately show Auth Modal
-      setActiveTab('beranda');
-      setAuthModalMode('login');
-      setIsAuthModalOpen(true);
+  // Logout handler - Ends Firebase session and preserves saved data
+const logoutUser = async () => {
+  try {
+    // 1. Sign out from Firebase
+    await signOut(auth);
 
-      showToast('Berhasil keluar dari akun. Seluruh catatan Anda tetap tersimpan.', 'info');
-    } catch (e) {
-      console.error('Logout error:', e);
-    }
-  };
+    // 2. Remove active session pointer
+    localStorage.removeItem(STORAGE_KEY_USER);
 
-  // Delete Account & All Data permanently
-  const deleteAccount = async (): Promise<boolean> => {
-    if (!user) return false;
-    try {
-      const id = user.id;
-      const email = user.email.toLowerCase();
+    // 3. Clear current state
+    setUser(null);
+    setFoodLogs([]);
+    setCustomFoods([]);
 
-      try {
-        await fetch(`/api/user-data/${id}`, { method: 'DELETE' });
-      } catch (e) {}
+    // 4. Return to Beranda and show login modal
+    setActiveTab('beranda');
+    setAuthModalMode('login');
+    setIsAuthModalOpen(true);
 
-      // Remove from accounts registry
-      const accounts = getStoredAccounts();
-      if (accounts[email]) {
-        delete accounts[email];
-        saveStoredAccounts(accounts);
-      }
-
-      localStorage.removeItem(STORAGE_KEY_USER);
-      localStorage.removeItem(STORAGE_PREFIX_LOGS + id);
-      localStorage.removeItem(STORAGE_PREFIX_CUSTOM + id);
-      localStorage.removeItem(STORAGE_BACKUP_LOGS);
-
-      setUser(null);
-      setFoodLogs([]);
-      setCustomFoods([]);
-      setActiveTab('beranda');
-      setAuthModalMode('register');
-      setIsAuthModalOpen(true);
-
-      showToast('Akun dan seluruh data telah dihapus secara permanen.', 'info');
-      return true;
-    } catch (err) {
-      showToast('Gagal menghapus akun.', 'error');
-      return false;
-    }
-  };
+    showToast(
+      'Berhasil keluar dari akun. Seluruh catatan Anda tetap tersimpan.',
+      'info'
+    );
+  } catch (e) {
+    console.error('Logout error:', e);
+    showToast('Gagal keluar dari akun. Silakan coba lagi.', 'error');
+  }
+};
 
   // ==========================================
   // ADD FOOD LOG (Atomic, Anti-duplicate, Permanent)
