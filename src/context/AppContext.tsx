@@ -473,8 +473,15 @@ const userCredential = await signInWithEmailAndPassword(
 const firebaseUser = userCredential.user;
 const userId = firebaseUser.uid;
 
+const userDocSnap = await getDoc(doc(db, 'users', userId));
+
+const firestoreData = userDocSnap.exists()
+  ? userDocSnap.data()
+  : null;
+
 const accounts = getStoredAccounts();
-let targetProfile = accounts[cleanEmail];
+let targetProfile =
+  firestoreData?.profile || accounts[cleanEmail];
 
 if (!targetProfile) {
   targetProfile = {
@@ -497,41 +504,62 @@ if (!targetProfile) {
 
 targetProfile.id = userId;
 targetProfile.email = cleanEmail;
+
 accounts[cleanEmail] = targetProfile;
 saveStoredAccounts(accounts);
 
       // Load logs for this specific user account
-      let userLogs: FoodLogEntry[] = [];
-      const savedUserLogs = localStorage.getItem(STORAGE_PREFIX_LOGS + userId);
-      if (savedUserLogs) {
-        try {
-          const parsed = JSON.parse(savedUserLogs);
-          if (Array.isArray(parsed)) userLogs = parsed;
-        } catch (e) {}
-      }
+let userLogs: FoodLogEntry[] = [];
 
-      // If user had no logs yet, seed starter logs
-      if (userLogs.length === 0) {
-        userLogs = createInitialStarterLogs(userId);
-        writeLocalLogs(userId, userLogs);
-      }
+if (Array.isArray(firestoreData?.logs)) {
+  userLogs = firestoreData.logs as FoodLogEntry[];
+} else {
+  const savedUserLogs = localStorage.getItem(STORAGE_PREFIX_LOGS + userId);
+
+  if (savedUserLogs) {
+    try {
+      const parsed = JSON.parse(savedUserLogs);
+      if (Array.isArray(parsed)) userLogs = parsed;
+    } catch (e) {}
+  }
+}
+
+// If user had no logs yet, seed starter logs
+if (userLogs.length === 0) {
+  userLogs = createInitialStarterLogs(userId);
+  writeLocalLogs(userId, userLogs);
+}
 
       // Load custom foods for this user account
-      let userCustom: FoodItem[] = [];
-      const savedCustom = localStorage.getItem(STORAGE_PREFIX_CUSTOM + userId);
-      if (savedCustom) {
-        try {
-          const parsed = JSON.parse(savedCustom);
-          if (Array.isArray(parsed)) userCustom = parsed;
-        } catch (e) {}
-      }
+let userCustom: FoodItem[] = [];
+
+if (Array.isArray(firestoreData?.customFoods)) {
+  userCustom = firestoreData.customFoods as FoodItem[];
+} else {
+  const savedCustom = localStorage.getItem(STORAGE_PREFIX_CUSTOM + userId);
+
+  if (savedCustom) {
+    try {
+      const parsed = JSON.parse(savedCustom);
+      if (Array.isArray(parsed)) userCustom = parsed;
+    } catch (e) {}
+  }
+}
 
       setUser(targetProfile);
       setFoodLogs(userLogs);
       setCustomFoods(userCustom);
 
       localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(targetProfile));
-      syncToServer(userId, targetProfile, userLogs, userCustom);
+
+writeLocalLogs(userId, userLogs);
+
+localStorage.setItem(
+  STORAGE_PREFIX_CUSTOM + userId,
+  JSON.stringify(userCustom)
+);
+
+syncToServer(userId, targetProfile, userLogs, userCustom);
 
       setIsAuthModalOpen(false);
       showToast(`Selamat datang kembali, ${targetProfile.name}! 👋`, 'success');
@@ -579,6 +607,11 @@ saveStoredAccounts(accounts);
 
       const firebaseUser = userCredential.user;
       const userId = firebaseUser.uid;
+      const userDocSnap = await getDoc(doc(db, 'users', userId));
+
+const firestoreData = userDocSnap.exists()
+  ? userDocSnap.data()
+  : null;
 
       const newProfile: UserProfile = {
         ...profileData,
